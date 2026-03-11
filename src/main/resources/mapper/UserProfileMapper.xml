@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fit.mapper.UserProfileMapper">
+
+    <resultMap id="BaseResultMap" type="com.fit.domain.UserProfile">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="gender" property="gender"/>
+        <result column="age" property="age"/>
+        <result column="height_cm" property="heightCm"/>
+        <result column="weight_kg" property="weightKg"/>
+        <result column="activity_level" property="activityLevel"/>
+        <result column="goal" property="goal"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO user_profile (user_id, gender, age, height_cm, weight_kg, activity_level, goal)
+        VALUES (#{userId}, #{gender}, #{age}, #{heightCm}, #{weightKg}, #{activityLevel}, #{goal})
+    </insert>
+
+    <update id="update" parameterType="com.fit.domain.UserProfile">
+        UPDATE user_profile
+        <set>
+            <if test="gender != null">gender = #{gender},</if>
+            <if test="age != null">age = #{age},</if>
+            <if test="heightCm != null">height_cm = #{heightCm},</if>
+            <if test="weightKg != null">weight_kg = #{weightKg},</if>
+            <if test="activityLevel != null">activity_level = #{activityLevel},</if>
+            <if test="goal != null">goal = #{goal},</if>
+        </set>
+        WHERE user_id = #{userId}
+    </update>
+
+    <delete id="deleteByUserId">
+        DELETE FROM user_profile WHERE user_id = #{userId}
+    </delete>
+
+</mapper>

@@ -29,10 +29,13 @@ public class UserServiceImpl implements UserService {
         if (user == null) {
             throw new BusinessException("用户不存在");
         }
+
         UserProfile profile = userProfileMapper.selectByUserId(userId);
-        String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole());
+
         UserDTO userDTO = toUserDTO(user);
         UserProfileDTO profileDTO = profile != null ? toProfileDTO(profile) : null;
+
+        String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole());
         return new LoginResponse(token, "Bearer", userDTO, profileDTO);
     }
 
@@ -43,8 +46,18 @@ public class UserServiceImpl implements UserService {
         if (user == null) {
             throw new BusinessException("用户不存在");
         }
-        if (dto.getEmail() != null) user.setEmail(dto.getEmail());
-        if (dto.getPhone() != null) user.setPhone(dto.getPhone());
+
+        if (dto.getEmail() != null && !dto.getEmail().isBlank()) {
+            if (userMapper.countByEmail(dto.getEmail()) > 0) {
+                throw new BusinessException("邮箱已被使用");
+            }
+            user.setEmail(dto.getEmail());
+        }
+
+        if (dto.getPhone() != null) {
+            user.setPhone(dto.getPhone());
+        }
+
         userMapper.update(user);
     }
 
@@ -52,23 +65,24 @@ public class UserServiceImpl implements UserService {
     @Transactional(rollbackFor = Exception.class)
     public void updateProfile(Long userId, UserProfileInputDTO dto) {
         UserProfile profile = userProfileMapper.selectByUserId(userId);
+
         if (profile == null) {
             profile = new UserProfile();
             profile.setUserId(userId);
-            if (dto.getGender() != null) profile.setGender(dto.getGender());
-            if (dto.getAge() != null) profile.setAge(dto.getAge());
-            if (dto.getHeightCm() != null) profile.setHeightCm(dto.getHeightCm());
-            if (dto.getWeightKg() != null) profile.setWeightKg(dto.getWeightKg().doubleValue());
-            if (dto.getActivityLevel() != null) profile.setActivityLevel(dto.getActivityLevel());
-            if (dto.getGoal() != null) profile.setGoal(dto.getGoal());
+            profile.setGender(dto.getGender());
+            profile.setAge(dto.getAge());
+            profile.setHeightCm(dto.getHeightCm());
+            profile.setWeightKg(dto.getWeightKg());
+            profile.setActivityLevel(dto.getActivityLevel());
+            profile.setGoal(dto.getGoal());
             userProfileMapper.insert(profile);
         } else {
-            if (dto.getGender() != null) profile.setGender(dto.getGender());
-            if (dto.getAge() != null) profile.setAge(dto.getAge());
-            if (dto.getHeightCm() != null) profile.setHeightCm(dto.getHeightCm());
-            if (dto.getWeightKg() != null) profile.setWeightKg(dto.getWeightKg().doubleValue());
-            if (dto.getActivityLevel() != null) profile.setActivityLevel(dto.getActivityLevel());
-            if (dto.getGoal() != null) profile.setGoal(dto.getGoal());
+            profile.setGender(dto.getGender());
+            profile.setAge(dto.getAge());
+            profile.setHeightCm(dto.getHeightCm());
+            profile.setWeightKg(dto.getWeightKg());
+            profile.setActivityLevel(dto.getActivityLevel());
+            profile.setGoal(dto.getGoal());
             userProfileMapper.update(profile);
         }
     }
@@ -76,94 +90,84 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updatePassword(Long userId, PasswordUpdateDTO dto) {
-        User u = userMapper.selectById(userId);
-        if (u == null) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
             throw new BusinessException("用户不存在");
         }
-        User user = userMapper.selectByUsernameWithPassword(u.getUsername());
-        if (user == null || !passwordEncoder.matches(dto.getOldPassword(), user.getPasswordHash())) {
+
+        if (!passwordEncoder.matches(dto.getOldPassword(), user.getPasswordHash())) {
             throw new BusinessException("原密码错误");
         }
-        userMapper.updatePassword(userId, passwordEncoder.encode(dto.getNewPassword()));
+
+        user.setPasswordHash(passwordEncoder.encode(dto.getNewPassword()));
+        userMapper.update(user);
     }
 
     @Override
     public MetabolismDTO getMyMetabolism(Long userId) {
         UserProfile profile = userProfileMapper.selectByUserId(userId);
         if (profile == null) {
-            throw new BusinessException("未填写身体数据");
+            throw new BusinessException("请先完善身体数据");
         }
-        UserProfileInputDTO input = new UserProfileInputDTO();
-        input.setGender(profile.getGender());
-        input.setAge(profile.getAge());
-        input.setHeightCm(profile.getHeightCm());
-        input.setWeightKg(profile.getWeightKg());
-        input.setActivityLevel(profile.getActivityLevel());
-        input.setGoal(profile.getGoal());
-        return computeMetabolism(input);
+
+        return computeMetabolismFromProfile(profile);
     }
 
     @Override
-    public MetabolismDTO computeMetabolism(UserProfileInputDTO input) {
-        if (input == null) {
-            throw new BusinessException("参数不能为空");
-        }
-        if (input.getGender() == null || input.getAge() == null || input.getHeightCm() == null || input.getWeightKg() == null) {
-            throw new BusinessException("计算 BMR/TDEE 需要性别、年龄、身高、体重");
+    public MetabolismDTO computeMetabolism(UserProfileInputDTO dto) {
+        UserProfile profile = new UserProfile();
+        profile.setGender(dto.getGender());
+        profile.setAge(dto.getAge());
+        profile.setHeightCm(dto.getHeightCm());
+        profile.setWeightKg(dto.getWeightKg());
+        profile.setActivityLevel(dto.getActivityLevel());
+
+        return computeMetabolismFromProfile(profile);
+    }
+
+    private MetabolismDTO computeMetabolismFromProfile(UserProfile profile) {
+        Double bmr = calculateBMR(profile);
+        Double activityFactor = getActivityFactor(profile.getActivityLevel());
+        Double tdee = bmr * activityFactor;
+
+        return new MetabolismDTO(bmr, activityFactor, tdee);
+    }
+
+    private Double calculateBMR(UserProfile profile) {
+        Double weight = profile.getWeightKg();
+        Double height = profile.getHeightCm();
+        Integer age = profile.getAge();
+        String gender = profile.getGender();
+
+        if (weight == null || height == null || age == null || gender == null) {
+            throw new BusinessException("身体数据不完整");
         }
 
-        double weight = input.getWeightKg();
-        double height = input.getHeightCm();
-        int age = input.getAge();
-
-        double bmr;
-        String g = input.getGender().trim().toUpperCase();
-        if ("FEMALE".equals(g)) {
-            bmr = 10 * weight + 6.25 * height - 5 * age - 161;
+        if ("male".equalsIgnoreCase(gender)) {
+            return 10 * weight + 6.25 * height - 5 * age + 5;
+        } else if ("female".equalsIgnoreCase(gender)) {
+            return 10 * weight + 6.25 * height - 5 * age - 161;
         } else {
-            // MALE/OTHER 默认按男性公式（可在前端限制只有 MALE/FEMALE）
-            bmr = 10 * weight + 6.25 * height - 5 * age + 5;
+            throw new BusinessException("性别参数错误，应为 male 或 female");
         }
-
-        double factor = activityFactor(input.getActivityLevel());
-        double tdee = bmr * factor;
-        return new MetabolismDTO(round1(bmr), round3(factor), round1(tdee));
     }
 
-    private static double activityFactor(String activityLevel) {
-        if (activityLevel == null || activityLevel.isBlank()) {
-            // 默认：一周不有氧/久坐少动
+    private Double getActivityFactor(String activityLevel) {
+        if (activityLevel == null) {
             return 1.2;
         }
-        String v = activityLevel.trim().toLowerCase();
 
-        // 兼容你描述的三档：不有氧/一周3次/一周5次
-        if (v.equals("none") || v.equals("no_cardio") || v.equals("cardio_0") || v.equals("sedentary")) {
-            return 1.2;
-        }
-        if (v.equals("mid") || v.equals("cardio_3") || v.equals("three_per_week") || v.equals("moderately_active")) {
-            return 1.55;
-        }
-        if (v.equals("high") || v.equals("cardio_5") || v.equals("five_per_week") || v.equals("very_active")) {
-            return 1.725;
-        }
-
-        // 兼容历史值（保留原 DTO 的可选项）
-        if (v.equals("lightly_active")) return 1.375;
-        if (v.equals("extra_active")) return 1.9;
-
-        return 1.2;
+        return switch (activityLevel.toLowerCase()) {
+            case "sedentary", "no_exercise" -> 1.2;
+            case "lightly_active", "light_exercise" -> 1.375;
+            case "moderately_active", "moderate_exercise" -> 1.55;
+            case "very_active", "hard_exercise" -> 1.725;
+            case "extra_active", "athlete" -> 1.9;
+            default -> 1.55;
+        };
     }
 
-    private static double round1(double v) {
-        return Math.round(v * 10.0) / 10.0;
-    }
-
-    private static double round3(double v) {
-        return Math.round(v * 1000.0) / 1000.0;
-    }
-
-    private static UserDTO toUserDTO(User user) {
+    private UserDTO toUserDTO(User user) {
         UserDTO dto = new UserDTO();
         dto.setId(user.getId());
         dto.setUsername(user.getUsername());
@@ -175,7 +179,7 @@ public class UserServiceImpl implements UserService {
         return dto;
     }
 
-    private static UserProfileDTO toProfileDTO(UserProfile p) {
+    private UserProfileDTO toProfileDTO(UserProfile p) {
         UserProfileDTO dto = new UserProfileDTO();
         dto.setId(p.getId());
         dto.setUserId(p.getUserId());

@@ -9,6 +9,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.NoHandlerFoundException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -20,9 +21,17 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(RuntimeException.class)
-    @ResponseStatus(HttpStatus.OK)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Result<Void> handleRuntime(RuntimeException e) {
-        return Result.fail(ResultCode.BUSINESS_ERROR.getCode(), e.getMessage());
+        e.printStackTrace();
+        return Result.fail(ResultCode.ERROR.getCode(), e.getMessage());
+    }
+
+    @ExceptionHandler(Exception.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public Result<Void> handleGeneral(Exception e) {
+        e.printStackTrace();
+        return Result.fail(ResultCode.ERROR.getCode(), "系统错误：" + e.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -43,5 +52,11 @@ public class GlobalExceptionHandler {
                 .reduce((a, b) -> a + "; " + b)
                 .orElse("参数校验失败");
         return Result.fail(ResultCode.BAD_REQUEST.getCode(), msg);
+    }
+
+    @ExceptionHandler(NoHandlerFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Result<Void> handleNotFound(NoHandlerFoundException e) {
+        return Result.fail(ResultCode.NOT_FOUND.getCode(), "接口不存在：" + e.getRequestURL());
     }
 }
